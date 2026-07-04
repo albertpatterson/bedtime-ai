@@ -155,6 +155,7 @@ Components:
 - `Friction Controller`: decides whether normal interaction, wind-down prompts, full-screen guard, or snooze mode is active.
 - `Platform Adapter`: handles autostart, full-screen behavior, and notifications per OS.
 - `Policy Config`: local file defining schedules, grace rules, and snooze rules.
+- `Runtime State`: local file containing last snooze timestamp, active snooze expiry, and last known schedule state.
 - `Event Log`: append-only local log of warnings, guard activations, and snoozes.
 
 Possible states:
@@ -221,13 +222,16 @@ wakeup_hours_after_last_snooze = 5
 
 [debug]
 mode = "off" # "off", "bedtime_now", or "bedtime_in_10_minutes"
-time_scale = 1.0 # lower values compress timing for manual testing
-debug_wakeup_minutes_after_last_snooze = 5
+time_scale = 1.0 # applies to wind-down warnings, ladder thresholds, snooze durations, and wakeup release
+debug_target_cycle_minutes = 5
 
 [snooze]
 enabled = true
 uses_per_night = "unlimited"
 require_passphrase = true
+match_case_sensitive = true
+allow_paste = true
+phrase_source = "fixed_messages"
 
 [[snooze.ladder]]
 minutes_after_bedtime = 0
@@ -257,6 +261,7 @@ close_apps = false
 
 [settings]
 require_extra_friction_during_guarded_hours = true
+settings_change_friction = "current_snooze_passphrase"
 ```
 
 ## Disable Posture
@@ -300,6 +305,56 @@ Failure cases to design for:
 - System clock is incorrect.
 - macOS, Windows, and eventually Linux differ in topmost-window behavior.
 
+## Implementation Clarifications
+
+These decisions were clarified before implementation begins.
+
+### Platform Overlay Feasibility
+
+- The first implementation task for any platform should be a tiny PySide6 overlay spike before building or porting the full app for that platform.
+- The spike should verify that a PySide6 full-screen, always-on-top overlay is good enough for the platform's real desktop behavior.
+- Do not invest deeply in platform-specific implementation until the overlay sanity check passes for that platform.
+- For macOS, test Spaces, Mission Control, full-screen apps, wake from sleep, and multiple displays.
+- For Windows, test borderless full-screen apps, Alt+Tab, Win key shortcuts, lock screen, virtual desktops, wake from sleep, and multiple displays.
+- For Linux, test X11 and Wayland separately if a real Linux use case appears.
+
+### Passphrase Behavior
+
+- Snooze passphrases should be fixed messages.
+- Messages should mix phrases about the importance of sleep, looking forward to tomorrow, and discouraging staying up further.
+- Matching should be case-sensitive.
+- Phrase length or difficulty should increase with the snooze tier.
+
+### Debug Timing Semantics
+
+- Debug mode should accelerate all timing: wind-down warning offsets, snooze ladder thresholds, snooze durations, and wakeup release.
+- The goal is to test warnings, overlay activation, several snoozes, and wakeup release within about 5 minutes.
+- Prefer a single `time_scale` plus a `debug_target_cycle_minutes` sanity target over separate debug fields for each timing rule.
+
+### Runtime State Persistence
+
+- Runtime state should be persisted in a local file.
+- The state file should include at least the last snooze timestamp, active snooze expiry, and last known schedule state.
+- Crash, reboot, and autostart recovery should read this file before computing current state.
+
+### Config Change Friction
+
+- Changing settings during guarded hours should require the current snooze passphrase.
+- Settings changes during guarded hours should be logged.
+
+### Notification Handling
+
+- Use whatever is most reliable and consistent across platforms.
+- A dedicated small warning window is acceptable if it is more predictable than native notifications.
+- Native notifications are not required for the first version.
+
+### File Locations
+
+- Config: `~/Library/Application Support/BedtimeGuard/config.toml`
+- Logs: `~/Library/Logs/BedtimeGuard/events.jsonl`
+- Runtime state: `~/Library/Application Support/BedtimeGuard/state.json`
+- Recovery instructions: repo doc plus copied local text file near config.
+
 ## Python Desktop App Implementation
 
 The implementation should be a Python desktop app, with a shared pure-Python core and thin platform adapters for desktop integration.
@@ -325,6 +380,7 @@ Suggested module boundaries:
 - `scheduler`: compute `inactive`, `wind_down`, `guarded`, `snoozed`, and `released` states.
 - `snooze`: choose snooze duration and passphrase tier.
 - `events`: append warnings, guard activations, snoozes, releases, and config-change attempts.
+- `state`: persist and load runtime state.
 - `ui`: PySide6 windows, notifications, and user input.
 - `platforms`: OS-specific autostart, window flags, display enumeration, and permission notes.
 
@@ -334,6 +390,7 @@ macOS is the first prototype target.
 
 Special handling:
 
+- Start with a tiny overlay spike before building the full macOS UI.
 - Use PySide6 full-screen windows on every `QScreen`.
 - Try Qt top-level/full-screen/window-stays-on-top flags first.
 - Verify behavior with Spaces, Mission Control, lock screen, wake from sleep, and multiple displays.
@@ -345,6 +402,7 @@ Special handling:
 
 Special handling:
 
+- Start with a tiny overlay spike before porting the full app to Windows.
 - Use PySide6 full-screen windows on every monitor.
 - Test topmost behavior with games, borderless full-screen apps, Alt+Tab, Win key shortcuts, lock screen, and virtual desktops.
 - Use a Startup folder shortcut or Task Scheduler entry for autostart.
@@ -357,6 +415,7 @@ Windows is the second required platform. Do this after the macOS version is reli
 
 Special handling:
 
+- Start with a tiny overlay spike before porting the full app to Linux.
 - Use PySide6 full-screen windows on every monitor.
 - Treat X11 and Wayland as separate behavior targets.
 - On X11, verify always-on-top and focus behavior with the target desktop environment.
@@ -374,66 +433,171 @@ Packaging can come after the macOS prototype proves the behavior. The first impl
 
 ### Milestone 1: Design And Simulation
 
+#### Step 1.1: Core Schedule Model
+
 Build:
 
 - Define schedule states.
-- Define policy config.
 - Add wakeup rule based on the last snooze.
 - Add debug schedule mode for bedtime now and bedtime 10 minutes from now.
 - Add accelerated debug timing for snooze ladder and wakeup release.
-- Define platform adapter boundaries.
-- Write sample event logs.
-- Simulate state transitions without enforcing anything.
 
 I can verify:
 
 - Schedule state calculations for normal bedtime, wind-down, guarded, snoozed, and released states.
-- Snooze ladder selection at each configured time threshold.
 - Wakeup release calculation from the last snooze timestamp.
 - Debug mode behavior for bedtime now, bedtime 10 minutes from now, and accelerated timing.
+
+You should verify:
+
+- The configured bedtime, wind-down timing, and wakeup rule feel right.
+- Debug timing feels fast enough to test without becoming confusing.
+
+#### Step 1.2: Snooze And Passphrase Model
+
+Build:
+
+- Add fixed passphrase tiers with case-sensitive matching.
+
+I can verify:
+
+- Snooze ladder selection at each configured time threshold.
+- Fixed passphrase tier selection and case-sensitive matching.
+
+You should verify:
+
+- Snooze durations and passphrase difficulty feel like the right amount of friction.
+- The fixed messages have the right tone.
+
+#### Step 1.3: Policy, State, And Event Files
+
+Build:
+
+- Define policy config.
+- Add local runtime state persistence.
+- Write sample event logs.
+
+I can verify:
+
 - Policy parsing and validation, including invalid or missing fields.
+- Runtime state read/write behavior.
 - Event log shape using generated sample events.
 
 You should verify:
 
-- The configured bedtime, wind-down timing, snooze ladder, and wakeup rule feel right.
 - The generated event log contains the kind of information you would actually want to review.
-- Debug timing feels fast enough to test without becoming confusing.
+- The default config, log, and state file locations feel reasonable.
+
+#### Step 1.4: Platform Adapter Boundary
+
+Build:
+
+- Define platform adapter boundaries.
+- Simulate state transitions without enforcing anything.
+
+I can verify:
+
+- Shared core logic can run without PySide6.
+- Platform adapter interface can represent overlay, warning, notification, autostart, and recovery behavior.
+
+You should verify:
+
+- The platform boundary matches how you expect to work: macOS first, Windows later, Linux deferred.
 
 ### Milestone 2: Full-Screen Guard Prototype
+
+#### Step 2.1: macOS Overlay Spike
+
+Build:
+
+- Run a tiny macOS PySide6 overlay spike before building the full UI.
+
+I can verify:
+
+- The spike creates a borderless full-screen window on every detected `QScreen`.
+- The spike uses the intended Qt full-screen and window-stays-on-top flags.
+- The spike includes a minimal manual exit/recovery path.
+
+You should verify:
+
+- The macOS overlay behavior with Spaces, Mission Control, full-screen apps, wake from sleep, and multiple displays is good enough for this project.
+- The overlay actually interrupts normal desktop interaction enough to be useful.
+
+#### Step 2.2: Guard Screen UI
 
 Build:
 
 - Show full-screen overlay during guarded state.
 - Support release after the wakeup rule is satisfied.
-- Support typed snooze passphrases.
-- Log warnings, guard activations, and snoozes.
-- Test manually on macOS first while keeping adapter boundaries clean.
 
 I can verify:
 
 - The app enters guarded state at the expected time.
 - The overlay renders the current time, time since bedtime, computed release time, snooze duration, and passphrase length.
-- Correct passphrases activate snooze, and incorrect passphrases do not.
-- Snooze expiration returns to guarded state.
 - Wakeup release hides the overlay.
-- Warnings, guard activations, snoozes, and releases are logged.
 
 You should verify:
 
-- The full-screen guard actually prevents normal desktop interaction on your Mac.
 - The guard feels plain and calm rather than irritating.
+- The full-screen guard actually prevents normal desktop interaction on your Mac.
+
+#### Step 2.3: Snooze Prompt UI
+
+Build:
+
+- Support typed snooze passphrases.
+
+I can verify:
+
+- Correct passphrases activate snooze, and incorrect passphrases do not.
+- Snooze expiration returns to guarded state.
+
+You should verify:
+
 - The snooze passphrase friction feels useful rather than hostile.
+
+#### Step 2.4: Prototype Logging And Debug Flow
+
+Build:
+
+- Log warnings, guard activations, and snoozes.
+- Test manually on macOS first while keeping adapter boundaries clean.
+
+I can verify:
+
+- Warnings, guard activations, snoozes, and releases are logged.
+- Debug mode can run bedtime, warning, guard, snooze, and release behavior in a few minutes.
+
+You should verify:
+
 - Debug mode lets you test the bedtime-to-release flow in a few minutes.
 
 ### Milestone 3: Windows Port
 
+#### Step 3.1: Windows Overlay Spike
+
 Build:
 
-- Port the macOS-tested guard behavior to Windows.
+- Run a tiny Windows PySide6 overlay spike before porting the full app.
 - Validate full-screen behavior on Windows.
 - Test Windows multi-monitor setups.
 - Test wake, lock screen, fast user switching, virtual desktops, Alt+Tab, and Win key behavior.
+
+I can verify:
+
+- The Windows overlay spike can cover all displays well enough to proceed with the Windows port.
+- Known Windows overlay limitations are captured in the docs.
+
+You should verify:
+
+- The Windows overlay spike is good enough before we port the full app.
+- The overlay behavior is acceptable with your actual Windows display and input setup.
+
+#### Step 3.2: Windows Guard Port
+
+Build:
+
+- Port the macOS-tested guard behavior to Windows.
 - Document known Windows-specific weaknesses.
 
 I can verify:
@@ -452,35 +616,75 @@ You should verify:
 
 ### Milestone 4: Autostart And Recovery
 
+#### Step 4.1: macOS Autostart And Recovery
+
 Build:
 
-- Start on login for macOS first, then Windows.
+- Start on login for macOS.
 - Restart after crash if appropriate.
 - Add recovery instructions.
-- Test reboot behavior on macOS and Windows.
+- Test reboot behavior on macOS.
 
 I can verify:
 
-- Autostart configuration files or installer steps are generated as expected.
+- macOS autostart configuration files or installer steps are generated as expected.
 - App startup loads the policy and resumes the correct schedule state.
 - Crash/restart behavior preserves enough state to compute guarded, snoozed, or released status.
 - Recovery instructions are present in the repo and reference the right files or commands.
-- Reboot-state handling is covered by tests where practical.
+- macOS reboot-state handling is covered by tests where practical.
 
 You should verify:
 
-- The app starts after login on your actual machines.
+- The app starts after login on your Mac.
 - Recovery instructions are understandable when you are tired.
 - Crash or reboot behavior does not surprise you during guarded hours.
 - The app remains easy enough to live with that you are not tempted to disable autostart permanently.
 
+#### Step 4.2: Windows Autostart And Recovery
+
+Build:
+
+- Start on login for Windows.
+- Add Windows recovery instructions.
+- Test reboot behavior on Windows.
+
+I can verify:
+
+- Windows autostart configuration files or installer steps are generated as expected.
+- Windows recovery instructions are present in the repo and reference the right files or commands.
+- Shared startup-state logic works on Windows through the platform adapter.
+
+You should verify:
+
+- The app starts after login on your Windows machine.
+- Windows recovery instructions are understandable.
+- Reboot behavior does not surprise you during guarded hours.
+
 ### Deferred: Linux Adapter
+
+#### Step L.1: Linux Overlay Spike
 
 Build only if a real Linux use case appears:
 
+- Run a tiny Linux PySide6 overlay spike before porting the full app.
+- Test X11 and Wayland separately.
+
+I can verify:
+
+- The Linux overlay spike can cover all displays well enough to proceed with a Linux adapter.
+- Linux overlay limitations are captured in the docs.
+
+You should verify:
+
+- There is an actual Linux machine or workflow that needs this.
+- The Linux overlay spike is good enough before we port the full app.
+
+#### Step L.2: Linux Adapter
+
+Build only if the Linux overlay spike passes:
+
 - Add Linux overlay behavior.
 - Add Linux autostart.
-- Test X11 and Wayland separately.
 - Document Linux-specific limitations.
 
 I can verify:
@@ -491,7 +695,6 @@ I can verify:
 
 You should verify:
 
-- There is an actual Linux machine or workflow that needs this.
 - The guard behavior is acceptable on the target Linux desktop environment.
 
 ## Resolved Decisions
@@ -502,9 +705,13 @@ You should verify:
 - Guard screen: show at least the current time and how far past bedtime it is.
 - Product shape: personal-use app, but reliable and easy to use.
 - Implementation stack: Python desktop app using PySide6 / Qt for Python, with a pure-Python core and per-OS adapters.
-- Snooze friction: require increasingly difficult or long passphrases as it gets later.
+- Platform gate: each platform starts with a tiny PySide6 overlay feasibility spike before full implementation or porting.
+- Snooze friction: require increasingly difficult or long fixed messages as it gets later, matched case-sensitively.
 - Wakeup rule: hide the overlay about 5 hours after the last snooze.
-- Debug mode: support bedtime now, bedtime 10 minutes from now, and accelerated timing for short manual test cycles.
+- Debug mode: support bedtime now, bedtime 10 minutes from now, and accelerated timing for a full flow within about 5 minutes.
+- Runtime state: persist last snooze timestamp, active snooze expiry, and last known schedule state in a local file.
+- Wind-down warnings: use the most reliable cross-platform approach, including a dedicated warning window if that beats native notifications.
+- Default macOS file locations: use `~/Library/Application Support/BedtimeGuard/` for config/state and `~/Library/Logs/BedtimeGuard/` for event logs.
 
 ## Decisions To Make
 
