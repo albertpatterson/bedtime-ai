@@ -30,7 +30,9 @@ The first useful version should support:
 - A full-screen lock or overlay mode.
 - A snooze flow that temporarily reveals the desktop.
 - Friction that applies broadly instead of relying on a curated app list.
-- Windows, macOS, and Linux support as a design requirement.
+- macOS support as the development and testing target.
+- Windows support as the second required platform after macOS is solid.
+- Linux support as an eventual possibility, with no current use case.
 - Logging of bedtime events and snoozes.
 
 Out of scope for the first design:
@@ -124,18 +126,21 @@ This makes the release time follow actual behavior:
 
 The guarded screen should show the computed release time so it is clear when the overlay will disappear.
 
-### Cross-Platform Guard Requirements
+### Platform Priorities
 
-The guard must work on Windows, macOS, and Linux, but each OS has different rules for always-on-top windows, focus capture, notifications, and autostart.
+The platform priority is:
 
-The design should therefore use one shared core with per-OS adapters:
+- macOS first: this is the required development and testing platform.
+- Windows second: this is needed after the macOS version is in good shape.
+- Linux third: keep the architecture open to it, but there is no current use case.
 
-- Shared core: schedule calculation, state machine, policy parsing, event logging, and snooze rules.
-- Windows adapter: startup integration, topmost full-screen windows, and notifications.
+The guard should use one shared core with platform adapters so the later Windows port does not require rewriting schedule, snooze, wakeup, debug, policy, or logging logic.
+
+Platform adapters:
+
 - macOS adapter: launch agent integration, full-screen/top-level window behavior, notifications, and accessibility permission notes if needed.
-- Linux adapter: desktop autostart or systemd user integration, X11/Wayland-specific full-screen behavior, and notifications.
-
-The first prototype should target macOS. Windows and Linux support should remain part of the design, but macOS should be the first platform used to prove the guard behavior and snooze flow.
+- Windows adapter: startup integration, topmost full-screen windows, and notifications.
+- Linux adapter: desktop autostart or systemd user integration, X11/Wayland-specific full-screen behavior, and notifications, deferred until there is a real use case.
 
 ## Recommended Architecture
 
@@ -293,48 +298,77 @@ Failure cases to design for:
 - The guard interrupts something with unsaved work.
 - Computer wakes from sleep during guarded hours.
 - System clock is incorrect.
-- Windows, macOS, and Linux differ in topmost-window behavior.
+- macOS, Windows, and eventually Linux differ in topmost-window behavior.
 
-## Implementation Paths To Compare Later
+## Python Desktop App Implementation
 
-### Cross-Platform Desktop App
+The implementation should be a Python desktop app, with a shared pure-Python core and thin platform adapters for desktop integration.
 
-Candidate stack:
+### Technology Stack
 
-- Shared application core.
-- Per-OS adapters for autostart, notifications, and full-screen behavior.
-- A UI toolkit that supports Windows, macOS, and Linux.
+- Python 3.12+ for the application core.
+- PySide6 / Qt for Python for the desktop UI, full-screen guard window, snooze prompt, and basic notifications.
+- Qt Widgets rather than QML for the first version, because the UI is simple and form-like.
+- `tomllib` for reading TOML policy files.
+- `dataclasses`, `datetime`, `zoneinfo`, and `pathlib` for schedule, time-zone, and file-path logic.
+- JSON Lines for append-only event logs.
+- `pytest` for schedule, snooze ladder, debug timing, wakeup release, config parsing, and logging tests.
 
-Good fit if we want one product shape across all target operating systems.
+The core scheduling code should not depend on PySide6. That keeps most behavior testable without opening windows.
 
-### Python Desktop App
+### Python Modules
 
-Candidate stack:
+Suggested module boundaries:
 
-- Python.
-- PySide or PyQt for full-screen UI.
-- Platform-specific hooks for autostart and window behavior.
+- `policy`: load and validate TOML config.
+- `clock`: injectable wall-clock and accelerated debug time helpers.
+- `scheduler`: compute `inactive`, `wind_down`, `guarded`, `snoozed`, and `released` states.
+- `snooze`: choose snooze duration and passphrase tier.
+- `events`: append warnings, guard activations, snoozes, releases, and config-change attempts.
+- `ui`: PySide6 windows, notifications, and user input.
+- `platforms`: OS-specific autostart, window flags, display enumeration, and permission notes.
 
-Good fit if we want quick local iteration and simple packaging experiments. Cross-platform packaging will need deliberate testing.
+### macOS Handling
 
-### Electron Or Tauri App
+macOS is the first prototype target.
 
-Candidate stack:
+Special handling:
 
-- Web UI for overlay and settings.
-- Node or Rust backend for process monitoring and OS integration.
+- Use PySide6 full-screen windows on every `QScreen`.
+- Try Qt top-level/full-screen/window-stays-on-top flags first.
+- Verify behavior with Spaces, Mission Control, lock screen, wake from sleep, and multiple displays.
+- Use a LaunchAgent for autostart.
+- Expect possible Accessibility or notification permission prompts; document exactly what the user needs to approve.
+- Keep a clear manual recovery command for disabling autostart or quitting the app.
 
-Good fit if we want a polished interface and more established cross-platform packaging.
+### Windows Handling
 
-### Native Per-OS Adapters
+Special handling:
 
-Candidate stack:
+- Use PySide6 full-screen windows on every monitor.
+- Test topmost behavior with games, borderless full-screen apps, Alt+Tab, Win key shortcuts, lock screen, and virtual desktops.
+- Use a Startup folder shortcut or Task Scheduler entry for autostart.
+- Use native notification behavior through Qt where adequate; add a Windows-specific adapter only if Qt notifications are not reliable enough.
+- Document any limitations around exclusive full-screen games appearing above the guard.
 
-- Windows service or startup task plus desktop UI.
-- macOS launch agent plus desktop UI.
-- Linux desktop autostart or systemd user service plus desktop UI.
+Windows is the second required platform. Do this after the macOS version is reliable and the shared core is stable.
 
-Good fit if robustness matters more than keeping the implementation identical on every OS.
+### Linux Handling
+
+Special handling:
+
+- Use PySide6 full-screen windows on every monitor.
+- Treat X11 and Wayland as separate behavior targets.
+- On X11, verify always-on-top and focus behavior with the target desktop environment.
+- On Wayland, expect stricter compositor control; document limitations if the compositor prevents reliable topmost behavior.
+- Use XDG autostart for desktop-session startup; consider a systemd user service only if XDG autostart is not reliable enough.
+- Test GNOME and KDE first if Linux support becomes important.
+
+Linux is deferred. Keep the code structure compatible with a future Linux adapter, but do not spend milestone time on Linux until there is a concrete use case.
+
+### Packaging
+
+Packaging can come after the macOS prototype proves the behavior. The first implementation can run from a virtual environment. Later packaging should produce a normal app bundle or installer per OS, but packaging should not drive the initial architecture.
 
 ## Milestone Plan
 
@@ -347,7 +381,7 @@ Build:
 - Add wakeup rule based on the last snooze.
 - Add debug schedule mode for bedtime now and bedtime 10 minutes from now.
 - Add accelerated debug timing for snooze ladder and wakeup release.
-- Define cross-platform adapter boundaries.
+- Define platform adapter boundaries.
 - Write sample event logs.
 - Simulate state transitions without enforcing anything.
 
@@ -392,37 +426,38 @@ You should verify:
 - The snooze passphrase friction feels useful rather than hostile.
 - Debug mode lets you test the bedtime-to-release flow in a few minutes.
 
-### Milestone 3: Cross-Platform Guard Behavior
+### Milestone 3: Windows Port
 
 Build:
 
-- Validate full-screen behavior on Windows, macOS, and Linux.
-- Test multi-monitor setups.
-- Test wake, lock screen, fast user switching, and virtual desktops.
-- Document known OS-specific weaknesses.
+- Port the macOS-tested guard behavior to Windows.
+- Validate full-screen behavior on Windows.
+- Test Windows multi-monitor setups.
+- Test wake, lock screen, fast user switching, virtual desktops, Alt+Tab, and Win key behavior.
+- Document known Windows-specific weaknesses.
 
 I can verify:
 
 - Shared schedule, snooze, wakeup, debug, policy, and logging logic stays platform-independent.
-- Platform adapters expose the same interface for notifications, overlay behavior, and autostart.
-- Documented manual test checklists exist for Windows, macOS, and Linux.
-- Known OS-specific weaknesses are captured in the docs.
+- Windows adapter exposes the same interface for notifications, overlay behavior, and autostart.
+- Documented manual test checklist exists for Windows.
+- Known Windows-specific weaknesses are captured in the docs.
 
 You should verify:
 
-- The guard covers the displays you actually use on each target OS.
-- Window focus, virtual desktops, lock/wake behavior, and multi-monitor behavior feel acceptable.
-- Any OS permission prompts are understandable and not too annoying.
-- The known weaknesses are acceptable for a personal-use app.
+- The guard covers the displays you actually use on Windows.
+- Window focus, virtual desktops, lock/wake behavior, and multi-monitor behavior feel acceptable on Windows.
+- Any Windows permission prompts or startup setup steps are understandable and not too annoying.
+- The known Windows weaknesses are acceptable for your actual use.
 
 ### Milestone 4: Autostart And Recovery
 
 Build:
 
-- Start on login.
+- Start on login for macOS first, then Windows.
 - Restart after crash if appropriate.
 - Add recovery instructions.
-- Test reboot behavior on all three operating systems.
+- Test reboot behavior on macOS and Windows.
 
 I can verify:
 
@@ -439,13 +474,34 @@ You should verify:
 - Crash or reboot behavior does not surprise you during guarded hours.
 - The app remains easy enough to live with that you are not tempted to disable autostart permanently.
 
+### Deferred: Linux Adapter
+
+Build only if a real Linux use case appears:
+
+- Add Linux overlay behavior.
+- Add Linux autostart.
+- Test X11 and Wayland separately.
+- Document Linux-specific limitations.
+
+I can verify:
+
+- Shared core still works with a Linux adapter.
+- Linux adapter follows the same platform interface.
+- Linux test checklist exists.
+
+You should verify:
+
+- There is an actual Linux machine or workflow that needs this.
+- The guard behavior is acceptable on the target Linux desktop environment.
+
 ## Resolved Decisions
 
-- First prototype platform: macOS.
+- Platform priority: macOS first, Windows second, Linux deferred until there is a real use case.
 - App behavior: only cover the screen; do not close apps.
 - Configuration changes during bedtime: require extra friction.
 - Guard screen: show at least the current time and how far past bedtime it is.
 - Product shape: personal-use app, but reliable and easy to use.
+- Implementation stack: Python desktop app using PySide6 / Qt for Python, with a pure-Python core and per-OS adapters.
 - Snooze friction: require increasingly difficult or long passphrases as it gets later.
 - Wakeup rule: hide the overlay about 5 hours after the last snooze.
 - Debug mode: support bedtime now, bedtime 10 minutes from now, and accelerated timing for short manual test cycles.
@@ -458,13 +514,14 @@ You should verify:
 
 For the first iteration, build a local desktop guard with:
 
+- Python 3.12+ and PySide6 / Qt for Python.
 - A schedule-driven full-screen overlay.
 - Unlimited snoozes with shorter durations and longer passphrases as it gets later.
 - A wakeup release about 5 hours after the last snooze.
 - Debug timing that can exercise bedtime, snoozes, and release over a few minutes.
 - Broad bedtime friction for desktop use instead of app-specific rules.
 - Event logging.
-- A cross-platform architecture with OS adapters from the beginning.
+- A macOS-first architecture with a shared core and OS adapters, so Windows can follow cleanly.
 - No website or network rules yet.
 
 This is the smallest version that can change behavior while still teaching us where the real bypasses and frustrations are.
