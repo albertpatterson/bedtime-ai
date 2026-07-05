@@ -59,6 +59,7 @@ The guard should:
 - Cover all connected displays.
 - Stay above normal app windows where the operating system allows it.
 - Capture keyboard and mouse focus where the operating system allows it.
+- While guarded, attempt to reclaim focus or reassert the full-screen guard after deactivation where the operating system allows it.
 - Reappear if dismissed accidentally during guarded hours.
 - Show a clear bedtime message, the current time, and the next automatic release time.
 - Show how far past bedtime it is.
@@ -138,9 +139,9 @@ The guard should use one shared core with platform adapters so the later Windows
 
 Platform adapters:
 
-- macOS adapter: launch agent integration, full-screen/top-level window behavior, notifications, and accessibility permission notes if needed.
-- Windows adapter: startup integration, topmost full-screen windows, and notifications.
-- Linux adapter: desktop autostart or systemd user integration, X11/Wayland-specific full-screen behavior, and notifications, deferred until there is a real use case.
+- macOS adapter: launch agent integration, full-screen/top-level window behavior, guarded-state reactivation attempts, notifications, and accessibility permission notes if needed.
+- Windows adapter: startup integration, topmost full-screen windows, guarded-state reactivation attempts, and notifications.
+- Linux adapter: desktop autostart or systemd user integration, X11/Wayland-specific full-screen behavior, guarded-state reactivation attempts where feasible, and notifications, deferred until there is a real use case.
 
 ## Recommended Architecture
 
@@ -153,7 +154,7 @@ Components:
 - `Notification UI`: easily dismissed wind-down warnings before bedtime.
 - `Overlay UI`: full-screen interface shown during guarded periods.
 - `Friction Controller`: decides whether normal interaction, wind-down prompts, full-screen guard, or snooze mode is active.
-- `Platform Adapter`: handles autostart, full-screen behavior, and notifications per OS.
+- `Platform Adapter`: handles autostart, full-screen behavior, guarded-state reactivation behavior, and notifications per OS.
 - `Policy Config`: local file defining schedules, grace rules, and snooze rules.
 - `Runtime State`: local file containing last snooze timestamp, active snooze expiry, and last known schedule state.
 - `Event Log`: append-only local log of warnings, guard activations, and snoozes.
@@ -191,6 +192,12 @@ Wind-down warnings should:
 - Make the upcoming bedtime clear.
 - Avoid countdown pressure.
 
+Wind-down warnings and warning logs are separate concerns:
+
+- Wind-down warnings are user-facing reminders shown during `wind_down`.
+- Warning logs are internal event records that those reminders were shown.
+- The app should support both, but they do not need to be implemented in the same step.
+
 ### Guarded Screen
 
 At bedtime, the screen becomes a full-screen guard.
@@ -203,7 +210,6 @@ The guarded screen should show:
 - Current time.
 - Time elapsed since bedtime.
 - Automatic release time.
-- Current snooze duration and passphrase length.
 - A snooze button.
 
 ### Snooze Screen
@@ -393,10 +399,12 @@ Special handling:
 - Start with a tiny overlay spike before building the full macOS UI.
 - Use PySide6 full-screen windows on every `QScreen`.
 - Try Qt top-level/full-screen/window-stays-on-top flags first.
+- If plain full-screen coverage is too easy to bypass, try a Qt-only reactivation loop that responds to app deactivation by re-showing and reactivating the guard window.
 - Verify behavior with Spaces, Mission Control, lock screen, wake from sleep, and multiple displays.
 - Use a LaunchAgent for autostart.
 - Expect possible Accessibility or notification permission prompts; document exactly what the user needs to approve.
 - Keep a clear manual recovery command for disabling autostart or quitting the app.
+- Current macOS spike result: Qt-only reactivation is annoying enough to be useful in the active Space, but switching to another Space is still an escape hatch we should treat as a known limitation unless a later platform-specific solution proves worthwhile.
 
 ### Windows Handling
 
@@ -433,7 +441,7 @@ Packaging can come after the macOS prototype proves the behavior. The first impl
 
 ### Milestone 1: Design And Simulation
 
-#### Step 1.1: Core Schedule Model
+#### Step 1.1: Core Schedule Model [Complete]
 
 Build:
 
@@ -453,7 +461,7 @@ You should verify:
 - The configured bedtime, wind-down timing, and wakeup rule feel right.
 - Debug timing feels fast enough to test without becoming confusing.
 
-#### Step 1.2: Snooze And Passphrase Model
+#### Step 1.2: Snooze And Passphrase Model [Complete]
 
 Build:
 
@@ -469,7 +477,7 @@ You should verify:
 - Snooze durations and passphrase difficulty feel like the right amount of friction.
 - The fixed messages have the right tone.
 
-#### Step 1.3: Policy, State, And Event Files
+#### Step 1.3: Policy, State, And Event Files [Complete]
 
 Build:
 
@@ -488,7 +496,7 @@ You should verify:
 - The generated event log contains the kind of information you would actually want to review.
 - The default config, log, and state file locations feel reasonable.
 
-#### Step 1.4: Platform Adapter Boundary
+#### Step 1.4: Platform Adapter Boundary [Complete]
 
 Build:
 
@@ -499,14 +507,17 @@ I can verify:
 
 - Shared core logic can run without PySide6.
 - Platform adapter interface can represent overlay, warning, notification, autostart, and recovery behavior.
+- Platform adapter interface can explicitly enable and disable guard reactivation behavior while guarded.
 
 You should verify:
 
 - The platform boundary matches how you expect to work: macOS first, Windows later, Linux deferred.
+- Look at [platforms.py](/home/user/Documents/code/expr/productivity/sleep/src/bedtime_guard/platforms.py) to confirm the adapter interface and planned action types feel right.
+- Look at [test_platforms.py](/home/user/Documents/code/expr/productivity/sleep/tests/test_platforms.py) to confirm the transition behavior matches how you expect warnings and guard actions to flow.
 
 ### Milestone 2: Full-Screen Guard Prototype
 
-#### Step 2.1: macOS Overlay Spike
+#### Step 2.1: macOS Overlay Spike [Complete]
 
 Build:
 
@@ -517,13 +528,19 @@ I can verify:
 - The spike creates a borderless full-screen window on every detected `QScreen`.
 - The spike uses the intended Qt full-screen and window-stays-on-top flags.
 - The spike includes a minimal manual exit/recovery path.
+- The spike code compiles and the current automated tests pass.
 
 You should verify:
 
 - The macOS overlay behavior with Spaces, Mission Control, full-screen apps, wake from sleep, and multiple displays is good enough for this project.
 - The overlay actually interrupts normal desktop interaction enough to be useful.
+- Note whether guarded-state reactivation meaningfully increases friction after app deactivation, even if Spaces remain a limitation.
+- Run the spike manually with `.venv/bin/python src/bedtime_guard/ui/macos_overlay_spike.py --confirm`.
+- Look at [src/bedtime_guard/ui/macos_overlay_spike.py](/home/user/Documents/code/expr/productivity/sleep/src/bedtime_guard/ui/macos_overlay_spike.py) for the current spike behavior and window flags.
+- Look at [tests/test_macos_overlay_spike.py](/home/user/Documents/code/expr/productivity/sleep/tests/test_macos_overlay_spike.py) for the current automated coverage of the spike entrypoint.
+- Look at [pyproject.toml](/home/user/Documents/code/expr/productivity/sleep/pyproject.toml) if you want to confirm the current UI dependency choice and version pin.
 
-#### Step 2.2: Guard Screen UI
+#### Step 2.2: Guard Screen UI [Complete]
 
 Build:
 
@@ -533,15 +550,20 @@ Build:
 I can verify:
 
 - The app enters guarded state at the expected time.
-- The overlay renders the current time, time since bedtime, computed release time, snooze duration, and passphrase length.
+- The overlay renders the current time, time since bedtime, and computed release time.
+- In debug mode, `Esc` exits the prototype immediately as a manual recovery path.
 - Wakeup release hides the overlay.
 
 You should verify:
 
 - The guard feels plain and calm rather than irritating.
 - The full-screen guard actually prevents normal desktop interaction on your Mac.
+- Run the guard prototype manually with `.venv/bin/python src/bedtime_guard/ui/guard_screen.py --confirm`.
+- Look at [src/bedtime_guard/ui/guard_screen.py](/Users/user/code2/expr/sleep/src/bedtime_guard/ui/guard_screen.py:1) for the current guard layout, timing refresh, reactivation behavior, and auto-release logic.
+- Look at [tests/test_guard_screen.py](/Users/user/code2/expr/sleep/tests/test_guard_screen.py:1) for the current automated coverage of guard rendering inputs and release behavior.
+- Run `.venv/bin/python -m pytest tests/test_guard_screen.py` if you want the focused automated verification command for this step.
 
-#### Step 2.3: Snooze Prompt UI
+#### Step 2.3: Snooze Prompt UI [Complete]
 
 Build:
 
@@ -555,22 +577,57 @@ I can verify:
 You should verify:
 
 - The snooze passphrase friction feels useful rather than hostile.
+- Run the guard prototype manually with `.venv/bin/python src/bedtime_guard/ui/guard_screen.py --confirm`.
+- Verify that `Snooze` opens a passphrase prompt, an incorrect passphrase keeps the guard active, a correct passphrase temporarily hides the guard, and the guard returns when the snooze expires.
+- Look at [src/bedtime_guard/ui/guard_screen.py](/Users/user/code2/expr/sleep/src/bedtime_guard/ui/guard_screen.py:1) for the current snooze prompt layout, passphrase submission flow, and snooze/guard transitions.
+- Look at [src/bedtime_guard/snooze.py](/Users/user/code2/expr/sleep/src/bedtime_guard/snooze.py:1) for the tier selection, scaled snooze duration, and passphrase matching rules.
+- Look at [tests/test_guard_screen.py](/Users/user/code2/expr/sleep/tests/test_guard_screen.py:1) for the automated coverage of correct passphrases, incorrect passphrases, and return-to-guard behavior.
+- Run `.venv/bin/python -m pytest tests/test_guard_screen.py` if you want the focused automated verification command for this step.
 
-#### Step 2.4: Prototype Logging And Debug Flow
+#### Step 2.4: Wind-Down Warning UI [Complete]
 
 Build:
 
-- Log warnings, guard activations, and snoozes.
+- Show dismissable warnings during `wind_down`.
+- Keep the warning UI visible enough to notice without taking over the full screen.
+
+I can verify:
+
+- The app enters `wind_down` at the expected time.
+- Warning UI appears during `wind_down` and stops once guarded mode begins.
+- The warning UI can be dismissed without breaking the schedule transition into guarded mode.
+
+You should verify:
+
+- The warnings feel noticeable without being obnoxious.
+- The warning UI is easy to dismiss and does not feel like a second guard.
+- Run the prototype manually with `.venv/bin/python src/bedtime_guard/ui/guard_screen.py --confirm`.
+- Verify that the default debug run starts with a dismissable warning, then transitions into the full guard a short time later.
+- Look at [src/bedtime_guard/ui/guard_screen.py](/Users/user/code2/expr/sleep/src/bedtime_guard/ui/guard_screen.py:1) for the current warning window, guard window, and phase transition logic.
+- Look at [src/bedtime_guard/platforms.py](/Users/user/code2/expr/sleep/src/bedtime_guard/platforms.py:1) for the existing warning action boundary and phase planning.
+- Look at [tests/test_guard_screen.py](/Users/user/code2/expr/sleep/tests/test_guard_screen.py:1) and [tests/test_platforms.py](/Users/user/code2/expr/sleep/tests/test_platforms.py:1) for the automated coverage of `wind_down` behavior and phase transitions.
+- Run `.venv/bin/python -m pytest tests/test_guard_screen.py` if you want the focused automated verification command for this step.
+
+#### Step 2.5: Prototype Logging And Debug Flow
+
+Build:
+
+- Log warning events, guard activations, and snoozes.
 - Test manually on macOS first while keeping adapter boundaries clean.
 
 I can verify:
 
-- Warnings, guard activations, snoozes, and releases are logged.
+- Warning events, guard activations, snoozes, and releases are logged.
 - Debug mode can run bedtime, warning, guard, snooze, and release behavior in a few minutes.
 
 You should verify:
 
 - Debug mode lets you test the bedtime-to-release flow in a few minutes.
+
+Note:
+
+- This step is about logging and debug flow.
+- User-facing wind-down warnings or notifications are a separate UI feature from logged warning events.
 
 ### Milestone 3: Windows Port
 
