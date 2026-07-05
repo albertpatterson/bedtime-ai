@@ -17,5 +17,7 @@ windows-build = [
 ]
 
 [project.scripts]
+bedtime-guard-config = "bedtime_guard.config_files:main"
 bedtime-guard-prototype = "bedtime_guard.ui.guard_screen:main"
+bedtime-guard-set-schedule = "bedtime_guard.set_schedule:main"
 bedtime-guard-windows-overlay-spike = "bedtime_guard.ui.windows_overlay_spike:main"

@@ -1,0 +1,2 @@
+{"details": {"new_bedtime": "21:00", "new_wind_down_minutes": 30, "old_bedtime": "22:30", "old_wind_down_minutes": 30}, "event_type": "schedule_change_attempted", "occurred_at": "2026-07-05T16:43:29-05:00"}
+{"details": {"applied_bedtime": "21:00", "applied_wind_down_minutes": 30, "new_bedtime": "21:00", "new_wind_down_minutes": 30, "old_bedtime": "22:30", "old_wind_down_minutes": 30}, "event_type": "schedule_change_applied", "occurred_at": "2026-07-05T16:43:29-05:00"}

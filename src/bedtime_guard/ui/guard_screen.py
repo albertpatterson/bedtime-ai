@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from bedtime_guard.config_files import default_app_paths
 from bedtime_guard.events import append_event_record, build_event_record
 from bedtime_guard.platforms import warning_message
 from bedtime_guard.schedule import DebugMode, ScheduleConfig, SchedulePhase, ScheduleSnapshot, compute_schedule_snapshot
@@ -683,6 +684,7 @@ class GuardAppController:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    app_paths = default_app_paths()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--confirm",
@@ -720,12 +722,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--event-log",
-        default=".runtime/guard_events.jsonl",
+        default=str(app_paths.event_log_path),
         help="Path to the JSONL event log for the prototype run.",
     )
     parser.add_argument(
         "--state-path",
-        default=".runtime/guard_state.json",
+        default=str(app_paths.state_path),
         help="Path to the runtime state file for the prototype run.",
     )
     args = parser.parse_args(argv)

@@ -700,9 +700,105 @@ Known Windows-specific weaknesses to keep in mind at this stage:
 - Lock, unlock, sleep, wake, and fast user switching behavior should be treated as best-effort until the Windows autostart and recovery work is finished.
 - The prototype currently relies on running from Python, not an installed Windows application with polished startup integration.
 
-### Milestone 4: Autostart And Recovery
+### Milestone 4: Configuration Experience
 
-#### Step 4.1: macOS Autostart And Recovery
+#### Step 4.1: Config File Defaults And Locations [Complete]
+
+Build:
+
+- Choose default config, state, event log, and recovery-note locations for macOS and Windows.
+- Add a generated default config flow so the app can create a readable starting policy file.
+- Make the default config shape match the policy loader and current prototype behavior.
+
+I can verify:
+
+- Default file locations are documented and consistent with the code.
+- A generated default config includes the fields required by the current policy loader.
+- The config format remains explicit and inspectable.
+
+You should verify:
+
+- The default file locations feel natural on your actual machines.
+- The generated default config is readable enough that you would trust editing it by hand if needed.
+- Recovery-oriented files are easy to find when you are tired.
+- Run `.venv/bin/python -m bedtime_guard.config_files --platform darwin --stdout` to inspect the current generated default config on macOS.
+- Run `.venv/bin/python -m bedtime_guard.config_files --platform darwin --home-dir "$PWD/.tmp-config-home" --write-default-config` to write a safe throwaway macOS-style default config under the repo instead of your real home directory.
+- Run `.venv/bin/python -m bedtime_guard.config_files --platform win32 --home-dir "$PWD/.tmp-config-home" --appdata "$PWD/.tmp-config-home/AppData/Roaming" --localappdata "$PWD/.tmp-config-home/AppData/Local"` to inspect the current Windows default paths without needing a Windows machine.
+- Run `.venv/bin/python -m pytest tests/test_config_files.py tests/test_policy_state_events.py` if you want the focused automated verification command for this step.
+- Look at [src/bedtime_guard/policy.py](/Users/user/code2/expr/sleep/src/bedtime_guard/policy.py:1) for the current policy shape that this step needs to support.
+- Look at [src/bedtime_guard/config_files.py](/Users/user/code2/expr/sleep/src/bedtime_guard/config_files.py:1) for the current default path rules and generated config flow.
+- Look at [src/bedtime_guard/ui/guard_screen.py](/Users/user/code2/expr/sleep/src/bedtime_guard/ui/guard_screen.py:685) for the current prototype defaults that now use the platform file locations for event logs and runtime state.
+- Look at [tests/test_policy_state_events.py](/Users/user/code2/expr/sleep/tests/test_policy_state_events.py:1) for the current automated expectations around policy parsing.
+- Look at [tests/test_config_files.py](/Users/user/code2/expr/sleep/tests/test_config_files.py:1) for the automated coverage of default paths and default-config generation.
+- Look at [CONFIG_STEP_4_1_README.md](/Users/user/code2/expr/sleep/CONFIG_STEP_4_1_README.md:1) for the current setup notes, commands, and manual checklist for this step.
+
+Resolved default locations for this step:
+
+- macOS config, runtime state, and recovery notes live under `~/Library/Application Support/BedtimeGuard/`.
+- macOS event logs live under `~/Library/Logs/BedtimeGuard/`.
+- Windows config, runtime state, and recovery notes live under `%APPDATA%\BedtimeGuard\`.
+- Windows event logs live under `%LOCALAPPDATA%\BedtimeGuard\Logs\`.
+
+#### Step 4.2: Minimal Schedule Config Command [Complete]
+
+Build:
+
+- Expose a minimal command for changing bedtime.
+- Let the same command optionally change wind-down timing.
+- Preserve the rest of the policy file when only those exposed settings change.
+
+I can verify:
+
+- Bedtime changes round-trip cleanly between the command and the policy file.
+- Omitting `wind_down_minutes` preserves the current value.
+- Missing config files can be bootstrapped automatically before applying the change.
+
+You should verify:
+
+- The command feels simple enough that you would actually use it instead of postponing a bedtime change.
+- The default config file still feels like a trustworthy fallback for advanced settings.
+- Run `.venv/bin/python -m bedtime_guard.set_schedule --config-path "$PWD/.tmp-settings/config.toml" --bedtime 22:15` to update only bedtime and preserve the current wind-down setting.
+- Run `.venv/bin/python -m bedtime_guard.set_schedule --config-path "$PWD/.tmp-settings/config.toml" --bedtime 22:15 --wind-down-minutes 20` to update both bedtime and warning lead time.
+- Run `.venv/bin/python -m bedtime_guard.config_files --platform darwin --home-dir "$PWD/.tmp-settings-home" --write-default-config` if you want to pre-create a throwaway default config before using the schedule-update command.
+- Inspect the saved file at `.tmp-settings/config.toml` or your chosen config path to confirm the changes round-trip as readable TOML.
+- Run `.venv/bin/python -m pytest tests/test_set_schedule.py tests/test_policy_state_events.py tests/test_config_files.py` if you want the focused automated verification command for this step.
+- Look at [src/bedtime_guard/policy.py](/Users/user/code2/expr/sleep/src/bedtime_guard/policy.py:1) for the current policy load and save behavior used by the schedule-update command.
+- Look at [src/bedtime_guard/config_files.py](/Users/user/code2/expr/sleep/src/bedtime_guard/config_files.py:1) for the default config bootstrap flow used when the chosen config file does not exist yet.
+- Look at [src/bedtime_guard/set_schedule.py](/Users/user/code2/expr/sleep/src/bedtime_guard/set_schedule.py:1) for the minimal CLI path that updates bedtime and optional wind-down minutes while preserving the rest of the config.
+- Look at [tests/test_set_schedule.py](/Users/user/code2/expr/sleep/tests/test_set_schedule.py:1) for the automated coverage of the minimal schedule-update CLI.
+- Look at [CONFIG_STEP_4_2_README.md](/Users/user/code2/expr/sleep/CONFIG_STEP_4_2_README.md:1) for the current setup notes, commands, and manual checklist for this step.
+
+#### Step 4.3: Guarded-Hours Settings Friction [Deferred]
+
+Build:
+
+- Require extra friction for exposed schedule changes during guarded hours.
+- Reuse the current snooze passphrase or an equally intentional check before guarded-hours bedtime or wind-down changes apply.
+- Log guarded-hours config-change attempts and successful edits.
+
+I can verify:
+
+- Schedule changes outside guarded hours stay simple.
+- Config-change attempts are captured in the event log.
+
+You should verify:
+
+- The simplified schedule-change flow is still easy enough to use without exposing too much of the config.
+- The event log keeps enough context that you can tell what happened later.
+- Run `.venv/bin/python scripts/run_schedule_change.py` to use the interactive wrapper. For any prompted value you leave blank, the script keeps the current config value.
+- Run `.venv/bin/python scripts/run_schedule_change.py --bedtime 21:00 --wind-down-minutes 20` to verify the non-interactive path that updates both exposed settings directly.
+- Inspect `$PWD/.tmp-settings-home/Library/Logs/BedtimeGuard/guard_events.jsonl` after those runs to confirm that attempted and applied schedule-change events are written in a readable sequence.
+- Run `.venv/bin/python -m pytest tests/test_run_schedule_change.py tests/test_set_schedule.py tests/test_policy_state_events.py tests/test_config_files.py` if you want the focused automated verification command for this step.
+- Look at [scripts/run_schedule_change.py](/Users/user/code2/expr/sleep/scripts/run_schedule_change.py:1) for the short wrapper with interactive prompting and current-value fallback.
+- Look at [src/bedtime_guard/set_schedule.py](/Users/user/code2/expr/sleep/src/bedtime_guard/set_schedule.py:1) for the lower-level schedule-update command and config-change event logging.
+- Look at [src/bedtime_guard/events.py](/Users/user/code2/expr/sleep/src/bedtime_guard/events.py:1) for the JSONL event logging helper used for schedule-change attempts and applied changes.
+- Look at [tests/test_run_schedule_change.py](/Users/user/code2/expr/sleep/tests/test_run_schedule_change.py:1) for the automated coverage of the short wrapper and its interactive fallback behavior.
+- Look at [tests/test_set_schedule.py](/Users/user/code2/expr/sleep/tests/test_set_schedule.py:1) for the automated coverage of direct schedule updates and event logging.
+- Look at [CONFIG_STEP_4_3_README.md](/Users/user/code2/expr/sleep/CONFIG_STEP_4_3_README.md:1) for the current setup notes, commands, and manual checklist for this step.
+
+### Milestone 5: Autostart And Recovery
+
+#### Step 5.1: macOS Autostart And Recovery
 
 Build:
 
@@ -726,7 +822,7 @@ You should verify:
 - Crash or reboot behavior does not surprise you during guarded hours.
 - The app remains easy enough to live with that you are not tempted to disable autostart permanently.
 
-#### Step 4.2: Windows Autostart And Recovery
+#### Step 5.2: Windows Autostart And Recovery
 
 Build:
 

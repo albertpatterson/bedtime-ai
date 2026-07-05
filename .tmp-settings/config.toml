@@ -1,0 +1,47 @@
+[schedule]
+bedtime = "22:15"
+wind_down_minutes = 20
+wakeup_hours_after_last_snooze = 5
+
+[debug]
+mode = "off"
+time_scale = 1
+debug_target_cycle_minutes = 5
+
+[snooze]
+enabled = true
+uses_per_night = "unlimited"
+require_passphrase = true
+match_case_sensitive = true
+allow_paste = true
+phrase_source = "fixed_messages"
+
+[[snooze.ladder]]
+minutes_after_bedtime = 0
+duration_minutes = 10
+passphrase_words = 4
+
+[[snooze.ladder]]
+minutes_after_bedtime = 30
+duration_minutes = 5
+passphrase_words = 8
+
+[[snooze.ladder]]
+minutes_after_bedtime = 60
+duration_minutes = 2
+passphrase_words = 14
+
+[[snooze.ladder]]
+minutes_after_bedtime = 120
+duration_minutes = 1
+passphrase_words = 24
+
+[guard]
+mode = "full_screen"
+cover_all_displays = true
+require_snooze_for_desktop = true
+close_apps = false
+
+[settings]
+require_extra_friction_during_guarded_hours = true
+settings_change_friction = "current_snooze_passphrase"

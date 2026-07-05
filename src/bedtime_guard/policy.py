@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import time
 from pathlib import Path
 import tomllib
@@ -26,6 +26,12 @@ class BedtimeGuardPolicy:
     close_apps: bool
     require_extra_friction_during_guarded_hours: bool
     settings_change_friction: str
+
+
+def _format_number(value: float) -> str:
+    if value.is_integer():
+        return str(int(value))
+    return str(value)
 
 
 def _require_table(data: dict, key: str) -> dict:
@@ -119,3 +125,84 @@ def load_policy(path: Path) -> BedtimeGuardPolicy:
             settings_table, "settings_change_friction"
         ),
     )
+
+
+def dump_policy(policy: BedtimeGuardPolicy) -> str:
+    lines = [
+        "[schedule]",
+        f'bedtime = "{policy.schedule.bedtime.isoformat(timespec="minutes")}"',
+        f"wind_down_minutes = {policy.schedule.wind_down_minutes}",
+        (
+            "wakeup_hours_after_last_snooze = "
+            f"{_format_number(policy.schedule.wakeup_hours_after_last_snooze)}"
+        ),
+        "",
+        "[debug]",
+        f'mode = "{policy.schedule.debug_mode.value}"',
+        f"time_scale = {_format_number(policy.schedule.time_scale)}",
+        f"debug_target_cycle_minutes = {policy.debug_target_cycle_minutes}",
+        "",
+        "[snooze]",
+        f"enabled = {str(policy.snooze_enabled).lower()}",
+        f'uses_per_night = "{policy.uses_per_night}"',
+        f"require_passphrase = {str(policy.require_passphrase).lower()}",
+        f"match_case_sensitive = {str(policy.match_case_sensitive).lower()}",
+        f"allow_paste = {str(policy.allow_paste).lower()}",
+        f'phrase_source = "{policy.phrase_source}"',
+        "",
+    ]
+    for tier in policy.snooze_tiers:
+        lines.extend(
+            (
+                "[[snooze.ladder]]",
+                f"minutes_after_bedtime = {tier.minutes_after_bedtime}",
+                f"duration_minutes = {tier.duration_minutes}",
+                f"passphrase_words = {tier.passphrase_words}",
+                "",
+            )
+        )
+
+    lines.extend(
+        (
+            "[guard]",
+            f'mode = "{policy.guard_mode}"',
+            f"cover_all_displays = {str(policy.cover_all_displays).lower()}",
+            (
+                "require_snooze_for_desktop = "
+                f"{str(policy.require_snooze_for_desktop).lower()}"
+            ),
+            f"close_apps = {str(policy.close_apps).lower()}",
+            "",
+            "[settings]",
+            (
+                "require_extra_friction_during_guarded_hours = "
+                f"{str(policy.require_extra_friction_during_guarded_hours).lower()}"
+            ),
+            f'settings_change_friction = "{policy.settings_change_friction}"',
+            "",
+        )
+    )
+    return "\n".join(lines)
+
+
+def save_policy(path: Path, policy: BedtimeGuardPolicy) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(dump_policy(policy), encoding="utf-8")
+
+
+def update_policy_schedule(
+    policy: BedtimeGuardPolicy,
+    *,
+    bedtime: time,
+    wind_down_minutes: int | None = None,
+) -> BedtimeGuardPolicy:
+    schedule = replace(
+        policy.schedule,
+        bedtime=bedtime,
+        wind_down_minutes=(
+            policy.schedule.wind_down_minutes
+            if wind_down_minutes is None
+            else wind_down_minutes
+        ),
+    )
+    return replace(policy, schedule=schedule)

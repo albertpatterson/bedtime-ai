@@ -7,7 +7,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.bedtime_guard.events import append_event_record, build_event_record
-from src.bedtime_guard.policy import load_policy
+from src.bedtime_guard.config_files import render_default_policy
+from src.bedtime_guard.policy import dump_policy, load_policy
 from src.bedtime_guard.schedule import DebugMode
 from src.bedtime_guard.state import RuntimeState, load_runtime_state, save_runtime_state
 
@@ -78,6 +79,31 @@ class PolicyStateEventsTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 load_policy(policy_path)
+
+    def test_rendered_default_policy_matches_loader_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            policy_path = Path(tmpdir) / "config.toml"
+            policy_path.write_text(render_default_policy(), encoding="utf-8")
+
+            policy = load_policy(policy_path)
+
+        self.assertEqual(policy.schedule.wind_down_minutes, 30)
+        self.assertEqual(policy.guard_mode, "full_screen")
+        self.assertEqual(len(policy.snooze_tiers), 4)
+
+    def test_dump_policy_emits_expected_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            policy_path = Path(tmpdir) / "config.toml"
+            policy_path.write_text(render_default_policy(), encoding="utf-8")
+            policy = load_policy(policy_path)
+
+        dumped = dump_policy(policy)
+
+        self.assertIn("[schedule]", dumped)
+        self.assertIn("[debug]", dumped)
+        self.assertIn("[snooze]", dumped)
+        self.assertIn("[guard]", dumped)
+        self.assertIn("[settings]", dumped)
 
     def test_runtime_state_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
