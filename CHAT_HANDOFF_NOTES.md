@@ -18,6 +18,7 @@ Implemented so far:
 - `Step 2.4: Wind-Down Warning UI [Complete]`
 - `Step 2.5: Prototype Logging And Debug Flow [Complete]`
 - `Step 3.1: Windows Overlay Spike [Complete]`
+- `Step 3.2: Windows Guard Port [Complete]`
 
 The implementation is still intentionally early-stage and prototype-oriented.
 
@@ -40,6 +41,8 @@ The implementation is still intentionally early-stage and prototype-oriented.
 - `tests/test_windows_overlay_spike.py`
 - `tests/test_windows_packaging.py`
 - `tests/test_guard_screen.py`
+- `WINDOWS_STEP_3_1_README.md`
+- `WINDOWS_STEP_3_2_README.md`
 - `pyproject.toml`
 
 ## What The Current Code Does
@@ -199,6 +202,33 @@ Focused automated verification for the guard and snooze flow:
 ```bash
 .venv/bin/python -m pytest tests/test_guard_screen.py
 ```
+
+### Windows guard port
+
+The same `src/bedtime_guard/ui/guard_screen.py` prototype is now the current Windows guard port as well.
+
+Windows-specific verification notes now live in:
+
+- `WINDOWS_STEP_3_1_README.md`
+- `WINDOWS_STEP_3_2_README.md`
+
+For the current Windows guard milestone, the important manual command on a Windows machine is:
+
+```bash
+.venv\Scripts\python src\bedtime_guard\ui\guard_screen.py --confirm
+```
+
+Focused Windows-friendly automated verification for this milestone:
+
+```bash
+.venv\Scripts\python -m pytest tests\test_guard_screen.py tests\test_platforms.py
+```
+
+Known Windows weaknesses currently documented:
+
+- reactivation is still only a Qt-level focus/topmost attempt
+- virtual desktops and some secure system UI can still likely bypass the guard
+- lock, wake, and user-switching behavior are best-effort until autostart/recovery work lands
 
 ## Verification Status
 

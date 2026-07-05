@@ -665,7 +665,7 @@ You should verify:
 - Look at [tests/test_windows_packaging.py](/Users/user/code2/expr/sleep/tests/test_windows_packaging.py:1) for the automated coverage of the Windows packaging helper.
 - Run `.venv/bin/python -m pytest tests/test_windows_overlay_spike.py` if you want the focused automated verification command for this step.
 
-#### Step 3.2: Windows Guard Port
+#### Step 3.2: Windows Guard Port [Complete]
 
 Build:
 
@@ -685,6 +685,20 @@ You should verify:
 - Window focus, virtual desktops, lock/wake behavior, and multi-monitor behavior feel acceptable on Windows.
 - Any Windows permission prompts or startup setup steps are understandable and not too annoying.
 - The known Windows weaknesses are acceptable for your actual use.
+- Run the Windows guard prototype manually with `.venv\Scripts\python src\bedtime_guard\ui\guard_screen.py --confirm`.
+- Inspect `.runtime\guard_events.jsonl` and `.runtime\guard_state.json` after a debug run so you can confirm the warning, guard, snooze, and release flow on Windows.
+- Look at [src/bedtime_guard/ui/guard_screen.py](/Users/user/code2/expr/sleep/src/bedtime_guard/ui/guard_screen.py:1) for the shared warning, guard, snooze, reactivation, and logging behavior now exercised on Windows.
+- Look at [src/bedtime_guard/platforms.py](/Users/user/code2/expr/sleep/src/bedtime_guard/platforms.py:1) for the current platform action boundary that keeps schedule and policy logic shared across macOS and Windows.
+- Look at [tests/test_guard_screen.py](/Users/user/code2/expr/sleep/tests/test_guard_screen.py:1) for the automated coverage of warning, guard, snooze, release, logging, and persisted runtime state.
+- Look at [WINDOWS_STEP_3_2_README.md](/Users/user/code2/expr/sleep/WINDOWS_STEP_3_2_README.md:1) for the Windows-specific setup, one-paste commands, manual checklist, and known weaknesses.
+- Run `.venv\Scripts\python -m pytest tests\test_guard_screen.py tests\test_platforms.py` if you want the focused automated verification command for this step.
+
+Known Windows-specific weaknesses to keep in mind at this stage:
+
+- The current reactivation behavior is still a Qt-level topmost/refocus attempt, not a native kiosk or shell replacement.
+- Users can likely still escape by moving to another virtual desktop, opening secure system UI, or otherwise using Windows features outside normal app focus rules.
+- Lock, unlock, sleep, wake, and fast user switching behavior should be treated as best-effort until the Windows autostart and recovery work is finished.
+- The prototype currently relies on running from Python, not an installed Windows application with polished startup integration.
 
 ### Milestone 4: Autostart And Recovery
 
