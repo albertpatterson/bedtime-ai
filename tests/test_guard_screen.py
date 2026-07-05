@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 from src.bedtime_guard.schedule import DebugMode, ScheduleConfig, SchedulePhase
+from src.bedtime_guard.state import load_runtime_state
 from src.bedtime_guard.ui.guard_screen import (
     GuardAppController,
     build_config_from_args,
@@ -227,6 +231,64 @@ class GuardScreenTests(unittest.TestCase):
             warning_window.close.assert_called_once()
             guard_window.set_view_model.assert_called_once()
 
+    def test_logging_captures_warning_guard_and_release_flow(self) -> None:
+        app = Mock()
+        timer = Mock()
+        warning_window = Mock()
+        guard_window = Mock()
+        config = ScheduleConfig(
+            bedtime=time(12, 0),
+            wind_down_minutes=30,
+            wakeup_hours_after_last_snooze=5,
+            debug_mode=DebugMode.OFF,
+            time_scale=1 / 60,
+        )
+        times = iter(
+            (
+                datetime(2026, 7, 4, 11, 59, 45, tzinfo=TZ),
+                datetime(2026, 7, 4, 11, 59, 45, tzinfo=TZ),
+                datetime(2026, 7, 4, 12, 0, 0, tzinfo=TZ),
+                datetime(2026, 7, 4, 12, 6, 0, tzinfo=TZ),
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "events.jsonl"
+            state_path = Path(tmpdir) / "state.json"
+
+            with (
+                patch("src.bedtime_guard.ui.guard_screen.QTimer", return_value=timer),
+                patch.object(
+                    GuardAppController,
+                    "_build_warning_window",
+                    return_value=warning_window,
+                ),
+                patch.object(
+                    GuardAppController, "_build_windows", return_value=[guard_window]
+                ),
+                patch("src.bedtime_guard.ui.guard_screen.ReactivationController"),
+            ):
+                controller = GuardAppController(
+                    app=app,
+                    config=config,
+                    now_provider=lambda: next(times),
+                    event_log_path=log_path,
+                    state_path=state_path,
+                )
+                controller.refresh()
+                controller.refresh()
+
+            event_types = [
+                json.loads(line)["event_type"]
+                for line in log_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                event_types,
+                ["warning_shown", "guard_activated", "released"],
+            )
+            state = load_runtime_state(state_path)
+            self.assertEqual(state.last_known_phase, SchedulePhase.RELEASED.value)
+
     def test_incorrect_passphrase_does_not_activate_snooze(self) -> None:
         app = Mock()
         timer = Mock()
@@ -320,6 +382,60 @@ class GuardScreenTests(unittest.TestCase):
 
         self.assertEqual(controller.windows, [replacement_window])
         replacement_window.set_view_model.assert_called_once()
+
+    def test_snooze_submission_logs_event_and_saves_runtime_state(self) -> None:
+        app = Mock()
+        timer = Mock()
+        window = Mock()
+        config = ScheduleConfig(
+            bedtime=time(12, 0),
+            wind_down_minutes=30,
+            wakeup_hours_after_last_snooze=5,
+            debug_mode=DebugMode.OFF,
+            time_scale=0.2,
+        )
+        times = iter(
+            (
+                datetime(2026, 7, 4, 12, 0, tzinfo=TZ),
+                datetime(2026, 7, 4, 12, 0, tzinfo=TZ),
+                datetime(2026, 7, 4, 12, 0, tzinfo=TZ),
+                datetime(2026, 7, 4, 12, 1, tzinfo=TZ),
+                datetime(2026, 7, 4, 12, 2, tzinfo=TZ),
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "events.jsonl"
+            state_path = Path(tmpdir) / "state.json"
+
+            with (
+                patch("src.bedtime_guard.ui.guard_screen.QTimer", return_value=timer),
+                patch.object(GuardAppController, "_build_windows", return_value=[window]),
+                patch("src.bedtime_guard.ui.guard_screen.ReactivationController"),
+            ):
+                controller = GuardAppController(
+                    app=app,
+                    config=config,
+                    now_provider=lambda: next(times),
+                    event_log_path=log_path,
+                    state_path=state_path,
+                )
+
+            controller.open_snooze_prompt()
+            result = controller.submit_passphrase("Sleep!")
+
+            self.assertTrue(result)
+            event_types = [
+                json.loads(line)["event_type"]
+                for line in log_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(event_types, ["guard_activated", "snooze_started"])
+            state = load_runtime_state(state_path)
+            self.assertEqual(state.last_known_phase, SchedulePhase.SNOOZED.value)
+            self.assertEqual(
+                state.active_snooze_expires_at,
+                datetime(2026, 7, 4, 12, 3, tzinfo=TZ),
+            )
 
     def test_confirm_flag_is_required(self) -> None:
         with self.assertRaises(SystemExit) as context:

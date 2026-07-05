@@ -608,7 +608,7 @@ You should verify:
 - Look at [tests/test_guard_screen.py](/Users/user/code2/expr/sleep/tests/test_guard_screen.py:1) and [tests/test_platforms.py](/Users/user/code2/expr/sleep/tests/test_platforms.py:1) for the automated coverage of `wind_down` behavior and phase transitions.
 - Run `.venv/bin/python -m pytest tests/test_guard_screen.py` if you want the focused automated verification command for this step.
 
-#### Step 2.5: Prototype Logging And Debug Flow
+#### Step 2.5: Prototype Logging And Debug Flow [Complete]
 
 Build:
 
@@ -623,6 +623,13 @@ I can verify:
 You should verify:
 
 - Debug mode lets you test the bedtime-to-release flow in a few minutes.
+- Run the prototype manually with `.venv/bin/python src/bedtime_guard/ui/guard_screen.py --confirm`.
+- Inspect `.runtime/guard_events.jsonl` after a debug run to confirm that warning, guard, snooze, dismiss, and release events are being written in a readable sequence.
+- Inspect `.runtime/guard_state.json` after a debug run to confirm the runtime state tracks the last snooze time, active snooze expiry, and last known phase.
+- Look at [src/bedtime_guard/ui/guard_screen.py](/Users/user/code2/expr/sleep/src/bedtime_guard/ui/guard_screen.py:1) for the current prototype logging and state persistence integration.
+- Look at [src/bedtime_guard/events.py](/Users/user/code2/expr/sleep/src/bedtime_guard/events.py:1) and [src/bedtime_guard/state.py](/Users/user/code2/expr/sleep/src/bedtime_guard/state.py:1) for the event log and runtime state helpers used by the prototype.
+- Look at [tests/test_guard_screen.py](/Users/user/code2/expr/sleep/tests/test_guard_screen.py:1) for the automated coverage of warning, guard, snooze, release, event log, and runtime state behavior.
+- Run `.venv/bin/python -m pytest tests/test_guard_screen.py` if you want the focused automated verification command for this step.
 
 Note:
 
@@ -631,7 +638,7 @@ Note:
 
 ### Milestone 3: Windows Port
 
-#### Step 3.1: Windows Overlay Spike
+#### Step 3.1: Windows Overlay Spike [Complete]
 
 Build:
 
@@ -649,6 +656,14 @@ You should verify:
 
 - The Windows overlay spike is good enough before we port the full app.
 - The overlay behavior is acceptable with your actual Windows display and input setup.
+- Run the Windows spike manually with `.venv/bin/python src/bedtime_guard/ui/windows_overlay_spike.py --confirm`.
+- Build a Windows `.exe` for the spike with `.venv/bin/python scripts/build_windows_exe.py windows_overlay_spike`.
+- Build a Windows `.exe` for the main prototype with `.venv/bin/python scripts/build_windows_exe.py guard_screen`.
+- Look at [src/bedtime_guard/ui/windows_overlay_spike.py](/Users/user/code2/expr/sleep/src/bedtime_guard/ui/windows_overlay_spike.py:1) for the current Windows-specific spike behavior, full-screen flags, and reactivation attempt.
+- Look at [scripts/build_windows_exe.py](/Users/user/code2/expr/sleep/scripts/build_windows_exe.py:1) for the current Windows `.exe` build helper and target list.
+- Look at [tests/test_windows_overlay_spike.py](/Users/user/code2/expr/sleep/tests/test_windows_overlay_spike.py:1) for the automated coverage of the spike entrypoint and reactivation behavior.
+- Look at [tests/test_windows_packaging.py](/Users/user/code2/expr/sleep/tests/test_windows_packaging.py:1) for the automated coverage of the Windows packaging helper.
+- Run `.venv/bin/python -m pytest tests/test_windows_overlay_spike.py` if you want the focused automated verification command for this step.
 
 #### Step 3.2: Windows Guard Port
 

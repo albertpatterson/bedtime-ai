@@ -21,8 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from bedtime_guard.events import append_event_record, build_event_record
 from bedtime_guard.platforms import warning_message
 from bedtime_guard.schedule import DebugMode, ScheduleConfig, SchedulePhase, ScheduleSnapshot, compute_schedule_snapshot
+from bedtime_guard.state import RuntimeState, save_runtime_state
 from bedtime_guard.snooze import (
     FixedPhraseSource,
     SnoozeDecision,
@@ -446,12 +448,16 @@ class GuardAppController:
         now_provider: Callable[[], datetime] | None = None,
         last_snooze_at: datetime | None = None,
         active_snooze_expires_at: datetime | None = None,
+        event_log_path: Path | None = None,
+        state_path: Path | None = None,
     ) -> None:
         self._app = app
         self._config = config
         self._tiers = tiers
         self._phrase_source = phrase_source
         self._now_provider = now_provider or datetime.now
+        self._event_log_path = event_log_path
+        self._state_path = state_path
         self._last_snooze_at = last_snooze_at
         self._active_snooze_expires_at = active_snooze_expires_at
         self._snooze_prompt_visible = False
@@ -515,6 +521,32 @@ class GuardAppController:
         self._warning_window.close()
         self._warning_window = None
 
+    def _save_runtime_state(self, phase: SchedulePhase) -> None:
+        if self._state_path is None:
+            return
+        save_runtime_state(
+            self._state_path,
+            RuntimeState(
+                last_snooze_at=self._last_snooze_at,
+                active_snooze_expires_at=self._active_snooze_expires_at,
+                last_known_phase=phase.value,
+            ),
+        )
+
+    def _append_event(
+        self, *, event_type: str, occurred_at: datetime, details: dict[str, object]
+    ) -> None:
+        if self._event_log_path is None:
+            return
+        append_event_record(
+            self._event_log_path,
+            build_event_record(
+                event_type=event_type,
+                occurred_at=occurred_at,
+                details=details,
+            ),
+        )
+
     def _close_windows(self) -> None:
         for window in self._windows:
             window.close()
@@ -528,6 +560,11 @@ class GuardAppController:
 
     def dismiss_warning(self) -> None:
         self._warning_dismissed = True
+        self._append_event(
+            event_type="warning_dismissed",
+            occurred_at=self._now_provider(),
+            details={"phase": SchedulePhase.WIND_DOWN.value},
+        )
         self._close_warning_window()
 
     def open_snooze_prompt(self) -> None:
@@ -563,6 +600,16 @@ class GuardAppController:
         self._active_snooze_expires_at = now + timedelta(
             minutes=decision.tier.duration_minutes
         )
+        self._append_event(
+            event_type="snooze_started",
+            occurred_at=now,
+            details={
+                "phase": SchedulePhase.SNOOZED.value,
+                "duration_minutes": decision.tier.duration_minutes,
+                "snooze_expires_at": self._active_snooze_expires_at.isoformat(),
+                "tier_index": decision.tier_index,
+            },
+        )
         self._snooze_prompt_visible = False
         self._snooze_feedback_text = ""
         for window in self._windows:
@@ -584,6 +631,23 @@ class GuardAppController:
             snooze_feedback_text=self._snooze_feedback_text,
         )
         if snapshot.phase != self._previous_phase:
+            event_type = {
+                SchedulePhase.WIND_DOWN: "warning_shown",
+                SchedulePhase.GUARDED: "guard_activated",
+                SchedulePhase.RELEASED: "released",
+            }.get(snapshot.phase)
+            if event_type is not None:
+                self._append_event(
+                    event_type=event_type,
+                    occurred_at=now,
+                    details={
+                        "phase": snapshot.phase.value,
+                        "bedtime_at": snapshot.bedtime_at.isoformat(),
+                        "release_at": snapshot.release_at.isoformat(),
+                        "debug_enabled": snapshot.debug_enabled,
+                    },
+                )
+            self._save_runtime_state(snapshot.phase)
             if snapshot.phase == SchedulePhase.WIND_DOWN:
                 self._warning_dismissed = False
             self._previous_phase = snapshot.phase
@@ -654,6 +718,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=5.0,
         help="Hours after bedtime or last snooze when the guard releases.",
     )
+    parser.add_argument(
+        "--event-log",
+        default=".runtime/guard_events.jsonl",
+        help="Path to the JSONL event log for the prototype run.",
+    )
+    parser.add_argument(
+        "--state-path",
+        default=".runtime/guard_state.json",
+        help="Path to the runtime state file for the prototype run.",
+    )
     args = parser.parse_args(argv)
     if not args.confirm:
         parser.error("pass --confirm to launch the guard prototype")
@@ -681,7 +755,12 @@ def main(argv: list[str] | None = None) -> int:
     palette.setColor(QPalette.ColorRole.Window, QColor(12, 18, 24, 238))
     app.setPalette(palette)
 
-    controller = GuardAppController(app=app, config=build_config_from_args(args))
+    controller = GuardAppController(
+        app=app,
+        config=build_config_from_args(args),
+        event_log_path=Path(args.event_log),
+        state_path=Path(args.state_path),
+    )
     if not controller.has_visible_ui:
         print("No screens detected; guard prototype did not launch.", file=sys.stderr)
         return 1

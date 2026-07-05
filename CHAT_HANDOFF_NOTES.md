@@ -16,6 +16,8 @@ Implemented so far:
 - `Step 2.2: Guard Screen UI [Complete]`
 - `Step 2.3: Snooze Prompt UI [Complete]`
 - `Step 2.4: Wind-Down Warning UI [Complete]`
+- `Step 2.5: Prototype Logging And Debug Flow [Complete]`
+- `Step 3.1: Windows Overlay Spike [Complete]`
 
 The implementation is still intentionally early-stage and prototype-oriented.
 
@@ -28,11 +30,15 @@ The implementation is still intentionally early-stage and prototype-oriented.
 - `src/bedtime_guard/events.py`
 - `src/bedtime_guard/platforms.py`
 - `src/bedtime_guard/ui/macos_overlay_spike.py`
+- `src/bedtime_guard/ui/windows_overlay_spike.py`
 - `src/bedtime_guard/ui/guard_screen.py`
+- `scripts/build_windows_exe.py`
 - `tests/test_schedule.py`
 - `tests/test_policy_state_events.py`
 - `tests/test_platforms.py`
 - `tests/test_macos_overlay_spike.py`
+- `tests/test_windows_overlay_spike.py`
+- `tests/test_windows_packaging.py`
 - `tests/test_guard_screen.py`
 - `pyproject.toml`
 
@@ -126,6 +132,38 @@ This was done specifically to keep the shared behavior portable before building 
 
 This spike is meant as a platform sanity check, not a real enforcement path yet.
 
+### Windows overlay spike
+
+`src/bedtime_guard/ui/windows_overlay_spike.py` currently provides a Windows-oriented PySide6 proof of concept:
+
+- borderless widget
+- always-on-top flags
+- one overlay window per `QScreen`
+- full-screen show
+- simple centered text
+- `Esc` exits the spike
+- `--confirm` is required so it is not launched accidentally
+- a Qt-only reactivation attempt when the app loses activation
+
+Manual command for a Windows machine:
+
+```bash
+.venv/bin/python src/bedtime_guard/ui/windows_overlay_spike.py --confirm
+```
+
+Windows `.exe` build helper:
+
+```bash
+.venv/bin/python scripts/build_windows_exe.py windows_overlay_spike
+.venv/bin/python scripts/build_windows_exe.py guard_screen
+```
+
+This uses PyInstaller and expects the optional dependency group:
+
+```bash
+pip install -e .[windows-build]
+```
+
 ### Guard screen UI
 
 `src/bedtime_guard/ui/guard_screen.py` currently provides a fuller guarded-state prototype:
@@ -140,6 +178,8 @@ This spike is meant as a platform sanity check, not a real enforcement path yet.
 - temporary hidden `snoozed` state after a correct passphrase
 - return to guarded state when the snooze expires
 - Qt-only reactivation attempt after deactivation
+- JSONL event logging for warnings, dismissals, guard activation, snoozes, and release
+- runtime state persistence for last snooze, active snooze expiry, and last known phase
 - automatic exit when the computed schedule reaches `released`
 - `Esc` exits the prototype manually
 
@@ -148,6 +188,11 @@ The default manual command uses `bedtime_in_10_minutes` and `time_scale=1/60`, s
 ```bash
 .venv/bin/python src/bedtime_guard/ui/guard_screen.py --confirm
 ```
+
+By default, the prototype writes:
+
+- event log: `.runtime/guard_events.jsonl`
+- runtime state: `.runtime/guard_state.json`
 
 Focused automated verification for the guard and snooze flow:
 
@@ -162,7 +207,7 @@ Automated checks that passed in this repo:
 - `python3 -m py_compile src/bedtime_guard/ui/macos_overlay_spike.py tests/test_macos_overlay_spike.py`
 - `.venv/bin/python -m unittest discover -s tests -v`
 
-At the last run, the test suite passed with 41 tests.
+At the last run, the test suite passed with 52 tests.
 
 ## Environment Lesson From This Chat
 
@@ -218,7 +263,7 @@ python3 -m venv .venv
 
 ## Likely Next Step In The Next Chat
 
-The most natural next step is `Step 2.5` from the design doc: prototype logging and debug flow.
+The most natural next step is `Step 3.2` from the design doc: Windows guard port.
 
 Before going too far on UI work, it would be sensible to:
 
