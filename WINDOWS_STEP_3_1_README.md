@@ -24,14 +24,28 @@ You do not need to copy:
 From PowerShell in the repo root:
 
 ```powershell
-py -3 -m venv .venv
+py -3.13 -m venv .venv
 .venv\Scripts\python -m pip install -e .
+```
+
+Use Python `3.13` for now. The current `PySide6` dependency range does not install cleanly with Python `3.14` on Windows.
+
+Single-paste setup command:
+
+```powershell
+py -3.13 -m venv .venv; .venv\Scripts\python -m pip install -e .
 ```
 
 Optional packaging tools, only if you later want `.exe` builds:
 
 ```powershell
 .venv\Scripts\python -m pip install -e .[windows-build]
+```
+
+Single-paste setup plus optional packaging tools:
+
+```powershell
+py -3.13 -m venv .venv; .venv\Scripts\python -m pip install -e .[windows-build]
 ```
 
 ## Run The Spike
@@ -42,10 +56,22 @@ Manual spike command:
 .venv\Scripts\python src\bedtime_guard\ui\windows_overlay_spike.py --confirm
 ```
 
+Single-paste setup plus spike run:
+
+```powershell
+py -3.13 -m venv .venv; .venv\Scripts\python -m pip install -e .; .venv\Scripts\python src\bedtime_guard\ui\windows_overlay_spike.py --confirm
+```
+
 Focused automated verification:
 
 ```powershell
 .venv\Scripts\python -m pytest tests\test_windows_overlay_spike.py
+```
+
+Single-paste focused automated verification:
+
+```powershell
+py -3.13 -m venv .venv; .venv\Scripts\python -m pip install -e .; .venv\Scripts\python -m pytest tests\test_windows_overlay_spike.py
 ```
 
 Full test suite:
@@ -84,4 +110,10 @@ If you later want a Windows `.exe`, run on the Windows machine:
 ```powershell
 .venv\Scripts\python scripts\build_windows_exe.py windows_overlay_spike
 .venv\Scripts\python scripts\build_windows_exe.py guard_screen
+```
+
+Single-paste setup plus both `.exe` builds:
+
+```powershell
+py -3.13 -m venv .venv; .venv\Scripts\python -m pip install -e .[windows-build]; .venv\Scripts\python scripts\build_windows_exe.py windows_overlay_spike; .venv\Scripts\python scripts\build_windows_exe.py guard_screen
 ```
